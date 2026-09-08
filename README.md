@@ -49,6 +49,78 @@ associated with **or** a randomly generated address, so a salted commitment is
 a supported subject rather than a workaround. Once a subject links a real
 wallet, use that instead.
 
+## Self-custody: giving the credential to its subject
+
+Before this step the issuer holds a credential *about* someone. After it, the
+person holds a credential naming themselves and can present it anywhere without
+the issuer being involved. It is the step that makes an attestation worth more
+than a database row, and it is the one most integrations skip.
+
+```js
+import { createChallenge, claimToWallet, createMemoryChallengeStore } from "sas-identity-reference";
+
+// 1. Issue a single-use challenge and show the message to the subject.
+const challenge = createChallenge("ExampleIssuer");
+await store.put(userId, challenge);
+// challenge.message is what their wallet will display
+
+// 2. They sign it. You verify, and the credential moves to their wallet.
+const result = await claimToWallet(signer, settings, store, "ExampleIssuer", {
+  subjectId: userId,
+  walletAddress,
+  signature,
+  nonce: challenge.nonce,
+  previousSubject: theirSaltedCommitment,
+  method: "gov-id+liveness",
+  verifiedAt,
+});
+```
+
+The challenge is stored rather than derived. A derived challenge, from the
+wallet address or a timestamp, is replayable forever by anyone who captures one
+signature, and the signature is the entire proof. `ChallengeStore` is an
+interface because that part has to match your stack; the in-memory
+implementation is for tests and single-process tools, not production.
+
+The message is rebuilt from the stored nonce rather than taken from the
+request. Otherwise the caller chooses what they are signing.
+
+One implementation detail with no discoverable documentation: Node's crypto
+will only build an ed25519 `KeyObject` from SPKI DER, so a raw 32-byte wallet
+key has to be wrapped with the fixed ASN.1 prefix `302a300506032b6570032100`.
+That single constant is most of what makes `verifyWalletSignature` work.
+
+## Two kinds of subject, and the bug that comes from ignoring it
+
+A credential's subject is either **derived**, a salted commitment anyone with
+the id and salt can recompute, or **self-custodied**, the subject's own wallet,
+whose binding rests on a signature made once, off chain, at claim time and
+which nothing on chain can re-check.
+
+They are not interchangeable, and this is the failure that shipped in
+production:
+
+> A verifier recomputed the salted commitment, compared it to the on-chain
+> subject, and reported failure. That is correct for a derived subject and
+> wrong for a claimed one, so it failed loudly, on a public page, for precisely
+> the users who had taken the extra step.
+
+It went unnoticed because the claimed count was zero. Nobody had used the path,
+so nothing had exercised it.
+
+Use `describeSubject()` rather than comparing by hand:
+
+```js
+const d = describeSubject(onChainSubject, { domain, internalId, salt });
+// d.kind: "derived" | "self-custodied" | "unknown"
+```
+
+Three things it deliberately does **not** do. It never calls a non-matching
+commitment tampering. It reports a missing salt as `unknown` rather than as a
+failure, because that is the normal state after an erasure. And it reports a
+wrong salt as `self-custodied`, because nothing on chain distinguishes the two
+and claiming otherwise would be inventing certainty.
+
 ## How erasure works
 
 The salt is stored on the subject's own row and nowhere else. Delete the row
@@ -82,6 +154,12 @@ document check and a national database lookup are genuinely different claims,
 and publishing one blanket value for both makes the credential assert
 something untrue about whichever half did not match. Unlike a display bug,
 that is permanent and public.
+
+That is not hypothetical either. It is the **second** bug that shipped here: a
+claim route omitted the method and fell back to the document value, so somebody
+verified against a national database got a permanent on-chain statement that
+they had presented a document. `claimToWallet` requires `method` and does not
+default it, which is why.
 
 Credentials expire, 365 days by default. An identity check going stale is a
 real thing, and without an expiry a single check vouches for someone
@@ -216,11 +294,16 @@ state and a stale one is a false claim, but a caller should expect it.
 Being explicit, because "reference implementation" invites more trust than a
 test count deserves.
 
-**Offline, 25 tests:** subject derivation, the payload, expiry arithmetic
+**Offline, 40 tests:** subject derivation, the payload, expiry arithmetic
 including the inclusive boundary, field name encoding and decoding with
 multibyte names, a frozen serialisation vector checked byte for byte, the
 layout mismatch guard, the PDA seed guard by byte length, and the CLI surface
 including the mainnet refusal. The package builds against kit 5 with no casts.
+
+The claim tests sign with a real locally generated ed25519 keypair, which is
+what a wallet does, so signature verification is exercised rather than mocked:
+a genuine signature passes, another wallet's fails, a signature over a
+different message fails, and malformed input returns false instead of throwing.
 
 **On chain, against mainnet:** every path has been run end to end. Creating the
 credential and schema in one transaction, issuing, reading the credential back

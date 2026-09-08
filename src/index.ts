@@ -58,6 +58,22 @@ export {
 export { sendInstructions, getBalanceLamports, type SubmitResult } from "./submit.js";
 
 export {
+  CHALLENGE_TTL_MS,
+  challengeMessage,
+  createChallenge,
+  createMemoryChallengeStore,
+  describeSubject,
+  verifyWalletSignature,
+  claimToWallet,
+  type Challenge,
+  type ChallengeStore,
+  type ClaimRequest,
+  type ClaimResult,
+  type SubjectKind,
+  type SubjectDescription,
+} from "./claim.js";
+
+export {
   getSasAddresses,
   getAttestationAddress,
   ensureCredentialAndSchema,
