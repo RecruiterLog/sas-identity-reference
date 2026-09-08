@@ -1,0 +1,8 @@
+# Normalise to LF in the repository, whatever the checkout platform does.
+#
+# CI regenerates test/vectors.json and fails on any diff. Without this, the
+# file committed from a Windows checkout would differ from the one a Linux
+# runner writes by line ending alone, and the build would fail for a reason
+# that has nothing to do with the hashing rules.
+* text=auto eol=lf
+*.json text eol=lf

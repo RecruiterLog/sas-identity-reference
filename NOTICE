@@ -1,0 +1,12 @@
+sas-identity-reference
+Copyright 2026 Bitrora (Pty) Ltd, trading as RecruiterLog
+
+This product includes software developed at RecruiterLog
+(https://recruiterlog.com).
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Builds on the Solana Attestation Service and on sas-lib
+(https://github.com/solana-foundation/solana-attestation-service), which is
+separately licensed by its authors. No code from it is included here; it is a
+runtime dependency.

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# No cluster credentials are available to CI and none should be. Every job
+# here is offline: the on chain paths need a funded wallet, and a signing key
+# in a public repository's CI is not a trade worth making for a green tick.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22", "24"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      # The CLI's read only and refusal paths need neither a key nor a network,
+      # so they are worth asserting here: they are the ones that stand between
+      # a typo and an irreversible mainnet write.
+      - name: CLI derives a subject offline
+        run: |
+          node bin/sas-ref.mjs subject recruiter test-id \
+            --salt aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+      - name: CLI refuses a mainnet write without --yes
+        run: |
+          if node bin/sas-ref.mjs setup --cluster mainnet-beta; then
+            echo "::error::a mainnet write was NOT refused"
+            exit 1
+          fi
+          echo "refused, as intended"

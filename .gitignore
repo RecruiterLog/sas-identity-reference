@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Keypairs. Never commit one, on any cluster: a devnet key today is a mainnet
+# key the moment somebody reuses it.
+*-key.json
+*-keypair.json
+.env
+.env.*

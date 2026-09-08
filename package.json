@@ -1,0 +1,60 @@
+{
+  "name": "sas-identity-reference",
+  "version": "0.1.0",
+  "description": "A worked Solana Attestation Service integration: issuing identity credentials from a real KYC check, with a privacy preserving subject and an erasure path.",
+  "license": "Apache-2.0",
+  "author": "RecruiterLog",
+  "homepage": "https://github.com/RecruiterLog/sas-identity-reference",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RecruiterLog/sas-identity-reference.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RecruiterLog/sas-identity-reference/issues"
+  },
+  "keywords": [
+    "solana",
+    "solana-attestation-service",
+    "sas",
+    "attestation",
+    "kyc",
+    "identity",
+    "credentials",
+    "gdpr",
+    "popia"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "sas-ref": "./bin/sas-ref.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test",
+    "cli": "node bin/sas-ref.mjs"
+  },
+  "dependencies": {
+    "@solana/kit": "^5.5.1",
+    "sas-lib": "^1.0.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.0"
+  }
+}
