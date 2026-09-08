@@ -166,7 +166,25 @@ export interface IssueResult extends SubmitResult {
 }
 
 /**
- * Issue, or re-issue, a credential for one subject.
+ * Issue a credential for one subject.
+ *
+ * NOT a re-issue. SAS has no update instruction, and create refuses an
+ * account that already exists:
+ *
+ *   Allocate: account <attestation> already in use
+ *   Program <sas> failed: custom program error: 0x0
+ *
+ * This is the trap in renewal. A credential expires, you recompute the same
+ * subject from the same stored salt, and the create fails because the
+ * attestation account from last year is still sitting at that address. A
+ * nightly job written the obvious way retries forever while the credential
+ * stays expired, and the error above does not obviously mean "close it first".
+ *
+ * Renewing means closing then creating, which `replace: true` does. Note that
+ * it is two transactions and therefore not atomic: if the second fails, the
+ * subject is left with no credential until the next run. That is the right
+ * way round, since a missing credential is a recoverable state and a stale one
+ * is a false claim, but a caller should know it can happen.
  *
  * @param subject A salted commitment from `deriveSubjectAddress`, or the
  *   subject's own wallet address once they have linked one. SAS treats both
@@ -179,7 +197,8 @@ export async function issueAttestation(
   subject: string,
   verifiedAt: Date,
   method: string,
-  ttlDays?: number
+  ttlDays?: number,
+  options: { replace?: boolean } = {}
 ): Promise<IssueResult> {
   const { credential, schema } = await getSasAddresses(signer);
   const rpc = createSolanaRpc(settings.rpcUrl) as never;
@@ -191,6 +210,22 @@ export async function issueAttestation(
 
   const nonce = address(subject);
   const [attestation] = await deriveAttestationPda({ credential, schema, nonce });
+
+  // Check before spending a fee on a transaction that cannot succeed, and
+  // fail with something that names the remedy rather than with the program's
+  // "already in use".
+  const existing = await fetchMaybeAttestation(rpc, attestation);
+  if (existing.exists) {
+    if (!options.replace) {
+      throw new Error(
+        `An attestation already exists at ${attestation} for subject ${subject}. ` +
+          "SAS has no update instruction, so create would fail with " +
+          '"account already in use". Pass { replace: true } to close it first, ' +
+          "which is what renewing a credential requires."
+      );
+    }
+    await closeAttestation(signer, settings, subject);
+  }
 
   const data = buildAttestationData(verifiedAt, method);
   const expiry = attestationExpiry(new Date(), ttlDays);

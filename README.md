@@ -184,26 +184,59 @@ either a JSON array of 64 bytes, which is what `solana-keygen new` writes, or
 the same bytes base64 encoded. Never commit it, on any cluster: a devnet key
 today is a mainnet key the moment somebody reuses it.
 
-## What has and has not been verified
+## Renewal is not a re-issue
+
+The single most expensive thing in here to learn the hard way.
+
+**SAS has no update instruction.** Create refuses an account that already
+exists, and the message is not obviously about renewal:
+
+```
+Allocate: account 75RTot...ahT6 already in use
+Program 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG failed: custom program error: 0x0
+```
+
+Renewing therefore means **close, then create**. The trap is that a nightly job
+written the obvious way looks correct and works for a year: a credential nears
+expiry, you recompute the same subject from the same stored salt, and create
+fails because last year's account is still at that address. The job then
+retries every night while the credential sits expired.
+
+`issueAttestation` checks first and refuses with a message that names the
+remedy, rather than spending a fee on a transaction that cannot succeed. Pass
+`{ replace: true }`, or `--replace` on the CLI, to close first.
+
+Worth knowing: replace is two transactions and is **not atomic**. If the create
+fails after the close succeeded, the subject has no credential until the next
+run. That is the right way round, because a missing credential is a recoverable
+state and a stale one is a false claim, but a caller should expect it.
+
+## What has been verified
 
 Being explicit, because "reference implementation" invites more trust than a
 test count deserves.
 
-**Verified here:** 25 tests covering subject derivation, the payload, expiry
-arithmetic, field name encoding and decoding including multibyte names, a
-frozen serialisation vector checked byte for byte, the layout mismatch guard,
-the PDA seed guard, and the whole CLI surface including the mainnet refusal.
-The package builds against kit 5 with no casts.
+**Offline, 25 tests:** subject derivation, the payload, expiry arithmetic
+including the inclusive boundary, field name encoding and decoding with
+multibyte names, a frozen serialisation vector checked byte for byte, the
+layout mismatch guard, the PDA seed guard by byte length, and the CLI surface
+including the mainnet refusal. The package builds against kit 5 with no casts.
 
-**Not verified here:** the four on chain paths, `setup`, `issue`, `read` and
-`close`, have not been run from this repository. They need a funded wallet, and
-running them from an unattended environment against a key that may be a
-mainnet key is not a risk worth taking for a green tick. The same logic is in
-production at [RecruiterLog](https://recruiterlog.com), which issues these
-credentials on mainnet, but that is a claim about the original rather than
-about this extraction.
+**On chain, against mainnet:** every path has been run end to end. Creating the
+credential and schema in one transaction, issuing, reading the credential back
+and decoding it to the values that went in, the refusal on a second issue, the
+`--replace` renewal reusing the same PDA with new values, closing and
+reclaiming rent, reading a subject that has no credential, and re-running
+`setup` to confirm it is idempotent.
 
-If you run the devnet flow, a report either way is welcome in an issue.
+That last group is what the offline vector alone could not establish. A
+serialisation test can agree with itself and still be wrong about the format;
+only reading a credential back off the chain and getting `gov-id+liveness` and
+the right timestamp out of it settles that the payload was encoded correctly
+against the schema account as it actually exists.
+
+Total cost of the full run was about 0.0033 SOL, most of which is rent still
+held by the credential and schema accounts.
 
 ## Licence
 

@@ -50,6 +50,8 @@ options:
   --verified-at <iso> when it was established (default now)
   --ttl <days>        credential lifetime (default 365)
   --salt <hex>        subject salt, for the subject command
+  --replace           close an existing credential first, which is what
+                      renewing one requires: SAS has no update instruction
   --yes               required for any write against mainnet-beta
   --json              machine readable output
 
@@ -76,6 +78,7 @@ function parseArgs(argv) {
     else if (a === "--verified-at") opts.verifiedAt = value("--verified-at");
     else if (a === "--ttl") opts.ttl = Number(value("--ttl"));
     else if (a === "--salt") opts.salt = value("--salt");
+    else if (a === "--replace") opts.replace = true;
     else if (a === "--yes") opts.yes = true;
     else if (a === "--json") opts.json = true;
     else if (a.startsWith("-")) throw new Error(`unknown option ${a}`);
@@ -199,7 +202,8 @@ async function main(argv) {
           subject,
           verifiedAt,
           opts.method || "gov-id+liveness",
-          opts.ttl
+          opts.ttl,
+          { replace: !!opts.replace }
         );
         emit(r, [
           `issued for   ${r.subject}`,
@@ -264,8 +268,36 @@ async function main(argv) {
     }
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+
+    // "Transaction simulation failed" on its own is useless, and it is what
+    // kit reports for every rejected instruction. The program's own log lines
+    // are what actually say why, and they are buried in the error's context
+    // or its cause. Digging them out here is the difference between a minute
+    // and an afternoon.
+    for (let e = err; e; e = e.cause) {
+      const logs = e?.context?.logs ?? e?.logs;
+      if (Array.isArray(logs) && logs.length) {
+        console.error("\nprogram logs:");
+        for (const line of logs) console.error(`  ${line}`);
+        break;
+      }
+      const code = e?.context?.__code ?? e?.context?.code;
+      if (code !== undefined) console.error(`  (code ${code})`);
+    }
     return 1;
   }
 }
 
-process.exit(await main(process.argv.slice(2)));
+// Set the code and let the process wind down on its own, rather than calling
+// process.exit().
+//
+// process.exit() tears down while libuv still has handles closing, and on
+// Windows that aborts with "Assertion failed: !(handle->flags &
+// UV_HANDLE_CLOSING)" AFTER the command has already printed the right answer.
+// A tool that succeeds and then crashes is not a tool anyone will trust.
+//
+// The RPC client keeps a pooled socket alive, which would hold the loop open,
+// so the timer below is the backstop: unref'd, so it never delays a clean
+// exit, and if anything is still lingering a moment later we leave anyway.
+process.exitCode = await main(process.argv.slice(2));
+setTimeout(() => process.exit(process.exitCode), 250).unref();
