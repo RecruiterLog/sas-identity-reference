@@ -6,6 +6,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege, which is what CodeQL's "Workflow does not contain
+# permissions" alert asks for. A workflow with no permissions block inherits
+# the repository default, and that default can be read and write on every
+# scope, so a compromised action or a malicious dependency in a pull request
+# would be handed a token that can push to this repository.
+#
+# Nothing here pushes, comments, cuts a release or reads a secret. Reading the
+# code is the entire need, so that is all the token gets.
+permissions:
+  contents: read
+
 # No cluster credentials are available to CI and none should be. Every job
 # here is offline: the on chain paths need a funded wallet, and a signing key
 # in a public repository's CI is not a trade worth making for a green tick.
